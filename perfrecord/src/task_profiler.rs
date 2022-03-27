@@ -18,7 +18,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use framehop::Unwinder;
+use framehop::{TextByteData, Unwinder};
 use gecko_profile::ProfileBuilder;
 
 pub struct TaskProfiler {
@@ -165,20 +165,18 @@ impl TaskProfiler {
             .unwind_sections
             .eh_frame_section
             .and_then(|(addr, size)| VmSubData::map_from_task(self.task, addr, size).ok());
-        let text_data = lib
-            .unwind_sections
-            .text_section
-            .and_then(|(addr, size)| VmSubData::map_from_task(self.task, addr, size).ok());
+        let text_data = lib.unwind_sections.text_segment.and_then(|(addr, size)| {
+            VmSubData::map_from_task(self.task, addr, size)
+                .ok()
+                .map(|data| TextByteData::new(data, addr..addr + size))
+        });
 
         let unwind_data = match (unwind_info_data, eh_frame_data) {
-            (Some(unwind_info), Some(eh_frame)) => {
+            (Some(unwind_info), eh_frame) => {
                 framehop::ModuleUnwindData::CompactUnwindInfoAndEhFrame(
                     unwind_info,
-                    Some(Arc::new(eh_frame)),
+                    eh_frame.map(|data| Arc::new(data)),
                 )
-            }
-            (Some(unwind_info), None) => {
-                framehop::ModuleUnwindData::CompactUnwindInfoAndEhFrame(unwind_info, None)
             }
             (None, Some(eh_frame)) => framehop::ModuleUnwindData::EhFrame(Arc::new(eh_frame)),
             (None, None) => framehop::ModuleUnwindData::None,
