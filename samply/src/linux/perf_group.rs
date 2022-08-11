@@ -19,10 +19,10 @@ struct StoppedProcess(u32);
 impl StoppedProcess {
     fn new(pid: u32) -> Result<Self, io::Error> {
         // debug!("Stopping process with PID {}...", pid);
-        let ok = unsafe { libc::kill(pid as _, libc::SIGSTOP) };
-        if ok < 0 {
-            return Err(io::Error::last_os_error());
-        }
+        // let ok = unsafe { libc::kill(pid as _, libc::SIGSTOP) };
+        // if ok < 0 {
+        //     return Err(io::Error::last_os_error());
+        // }
 
         Ok(StoppedProcess(pid))
     }
@@ -31,9 +31,9 @@ impl StoppedProcess {
 impl Drop for StoppedProcess {
     fn drop(&mut self) {
         // debug!("Resuming process with PID {}...", self.0);
-        unsafe {
-            libc::kill(self.0 as _, libc::SIGCONT);
-        }
+        // unsafe {
+        //     libc::kill(self.0 as _, libc::SIGCONT);
+        // }
     }
 }
 

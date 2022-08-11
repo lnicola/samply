@@ -117,6 +117,11 @@ struct ServerArgs {
 }
 
 fn main() {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Ok(helper_process_type) = std::env::var("SAMPLY_HELPER") {
+        return profiler::run_helper_process(&helper_process_type);
+    }
+
     let opt = Opt::from_args();
     match opt.action {
         Action::Load(load_args) => {
