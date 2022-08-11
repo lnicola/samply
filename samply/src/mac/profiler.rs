@@ -115,3 +115,7 @@ pub fn start_recording(
 
     Ok(exit_status)
 }
+
+pub fn run_helper_process(_process_type: &str) {
+    // todo
+}
