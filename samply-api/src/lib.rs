@@ -83,6 +83,7 @@ pub use samply_symbols::debugid;
 use debugid::DebugId;
 use serde_json::json;
 
+mod asm;
 mod error;
 mod source;
 mod symbolicate;
@@ -105,6 +106,7 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
 ///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
 ///  - `/source/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
 ///    symbol information for that address.
+///  - `/asm/v1`: Experimental API. Returns assembly code for the requested file + address range.
 pub async fn query_api<'h>(
     request_url: &str,
     request_json_data: &str,
@@ -114,6 +116,8 @@ pub async fn query_api<'h>(
         symbolicate::query_api_json(request_json_data, helper).await
     } else if request_url == "/source/v1" {
         source::query_api_json(request_json_data, helper).await
+    } else if request_url == "/asm/v1" {
+        asm::query_api_json(request_json_data, helper).await
     } else {
         json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
     }

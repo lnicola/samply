@@ -171,11 +171,11 @@ mod windows;
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::Error;
-use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
-    FileAndPathHelperResult, FileContents, FileLocation, FilePath, InlineStackFrame,
-    OptionallySendFuture, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    FileAndPathHelperResult, FileContents, FileContentsWrapper, FileLocation, FilePath,
+    InlineStackFrame, OptionallySendFuture, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind, relative_address_base,
 };
 pub use debugid_util::{debug_id_for_object, DebugIdExt};
 
