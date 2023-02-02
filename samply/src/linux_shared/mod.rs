@@ -1,5 +1,6 @@
 mod context_switch;
 mod kernel_symbols;
+mod object_rewriter;
 
 use byteorder::LittleEndian;
 use context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
@@ -29,6 +30,7 @@ use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
 use object::{FileKind, Object, ObjectSection, ObjectSegment, SectionKind};
 use samply_symbols::{debug_id_for_object, object, DebugIdExt};
 use wholesym::samply_symbols;
+use wholesym::samply_symbols::object::{U16, U64};
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
@@ -1287,6 +1289,34 @@ where
         fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
             section.uncompressed_data().ok().map(|data| data.to_vec())
         }
+
+        let rewritten_file;
+        use wholesym::samply_symbols::object::read::elf::FileHeader;
+        use wholesym::samply_symbols::object::Endianness;
+        let header = object::elf::FileHeader64::<Endianness>::parse(&mmap[..]).ok()?;
+        let endian = header.endian().ok()?;
+        let bad_file = header.e_entry(endian) == 0x40 && header.e_phnum(endian) == 1;
+        dbg!(bad_file);
+        let mmap = if !bad_file {
+            &mmap[..]
+        } else {
+            rewritten_file = object_rewriter::drop_phdr::<wholesym::samply_symbols::object::elf::FileHeader64<Endianness>>(&mmap).unwrap();
+             /* 
+            let mut header = header.clone();
+            header.e_phnum = U16::new(endian, 0);
+            header.e_phoff = U64::new(endian, 0);
+            header.e_shoff = U64::new(endian, 0x40);
+
+            dbg!(header);
+            //rewritten_file = mmap[..].to_owned();
+            let mut head = &mut rewritten_file[0..0x40];
+            head.copy_from_slice(pod::bytes_of(&header));
+
+
+            //rewritten_file.drain(0x40..0x80);
+            std::fs::write("result.so", &rewritten_file);*/
+            &rewritten_file[..]
+        };
 
         let file = match object::File::parse(&mmap[..]) {
             Ok(file) => file,
