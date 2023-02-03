@@ -1,8 +1,7 @@
 use std::error::Error;
 
 use object::read::elf::{FileHeader, SectionHeader};
-use object::Endianness;
-use object::{elf, U16, U32, U64};
+use object::{elf, Endianness, U16, U32, U64};
 
 fn align(offset: usize, size: usize) -> usize {
     (offset + (size - 1)) & !(size - 1)
@@ -120,6 +119,8 @@ pub fn drop_phdr<Elf: FileHeader<Endian = Endianness>>(
             out_data.write_pod(&out_header);
         }
     }
+
+    // Do not write any program headers.
 
     // Write the section data.
     for (section, offset) in in_sections.iter().zip(section_offsets.iter()) {

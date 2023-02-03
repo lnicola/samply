@@ -1245,15 +1245,14 @@ fn add_module_to_unwinder<U>(
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    let path = std::str::from_utf8(path_slice).unwrap().to_owned();
-    let mut suspected_pe_mapping = None;
-
-    let (mut file, mut path) =
-        match open_file_with_fallback(Path::new(&path), extra_binary_artifact_dir) {
+    let path = std::str::from_utf8(path_slice).unwrap();
+    let (mut file, mut path): (Option<_>, String) =
+        match open_file_with_fallback(Path::new(path), extra_binary_artifact_dir) {
             Ok((file, path)) => (Some(file), path.to_string_lossy().to_string()),
             _ => (None, path.to_owned()),
         };
 
+    let mut suspected_pe_mapping = None;
     if file.is_none() {
         suspected_pe_mapping = suspected_pe_mappings
             .range(..=mapping_start_avma)
@@ -1497,7 +1496,7 @@ fn correct_bad_perf_jit_so_file(
 
     // The bad files have a .text section with offset 0x80 and address 0x40 (on x86_64).
     let text_section = obj.section_by_name(".text")?;
-    if text_section.file_range()?.0 != text_section.address() {
+    if text_section.file_range()?.0 == text_section.address() {
         return None;
     }
 
