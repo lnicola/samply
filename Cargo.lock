@@ -1485,6 +1485,7 @@ dependencies = [
  "memmap2",
  "nix-base32",
  "num_cpus",
+ "object",
  "parking_lot",
  "percent-encoding",
  "rand",

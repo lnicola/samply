@@ -28,9 +28,8 @@ use memmap2::Mmap;
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
 use object::{FileKind, Object, ObjectSection, ObjectSegment, SectionKind};
-use samply_symbols::{debug_id_for_object, object, DebugIdExt};
+use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
-use wholesym::samply_symbols::object::{U16, U64};
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
@@ -943,13 +942,14 @@ impl From<CpuMode> for StackMode {
 fn open_file_with_fallback(
     path: &Path,
     extra_dir: Option<&Path>,
-) -> std::io::Result<std::fs::File> {
+) -> std::io::Result<(std::fs::File, PathBuf)> {
     match (std::fs::File::open(path), extra_dir, path.file_name()) {
+        (Ok(file), _, _) => Ok((file, path.to_owned())),
         (Err(_), Some(extra_dir), Some(filename)) => {
             let p: PathBuf = [extra_dir, Path::new(filename)].iter().collect();
-            std::fs::File::open(p)
+            std::fs::File::open(&p).map(|file| (file, p))
         }
-        (result, _, _) => result,
+        (Err(e), _, _) => Err(e),
     }
 }
 
@@ -1245,11 +1245,15 @@ fn add_module_to_unwinder<U>(
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    let mut path = std::str::from_utf8(path_slice).unwrap();
-    let mut objpath = Path::new(path);
+    let path = std::str::from_utf8(path_slice).unwrap().to_owned();
     let mut suspected_pe_mapping = None;
 
-    let mut file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
+    let (mut file, mut path) =
+        match open_file_with_fallback(Path::new(&path), extra_binary_artifact_dir) {
+            Ok((file, path)) => (Some(file), path.to_string_lossy().to_string()),
+            _ => (None, path.to_owned()),
+        };
+
     if file.is_none() {
         suspected_pe_mapping = suspected_pe_mappings
             .range(..=mapping_start_avma)
@@ -1260,14 +1264,26 @@ where
                     && mapping_start_avma + mapping_size <= m.start + m.size
             });
         if let Some(mapping) = suspected_pe_mapping {
-            path = std::str::from_utf8(&mapping.path).unwrap();
-            objpath = Path::new(path);
-            file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
+            if let Ok((pe_file, pe_path)) = open_file_with_fallback(
+                Path::new(std::str::from_utf8(&mapping.path).unwrap()),
+                extra_binary_artifact_dir,
+            ) {
+                file = Some(pe_file);
+                path = pe_path.to_string_lossy().to_string();
+            }
         }
     }
 
     if file.is_none() && !path.starts_with('[') {
         // eprintln!("Could not open file {:?}", objpath);
+    }
+
+    // Fix up bad files from `perf inject --jit`.
+    if let Some(file_inner) = &file {
+        if let Some((fixed_file, fixed_path)) = correct_bad_perf_jit_so_file(file_inner, &path) {
+            file = Some(fixed_file);
+            path = fixed_path;
+        }
     }
 
     let mapping_end_avma = mapping_start_avma + mapping_size;
@@ -1290,38 +1306,10 @@ where
             section.uncompressed_data().ok().map(|data| data.to_vec())
         }
 
-        let rewritten_file;
-        use wholesym::samply_symbols::object::read::elf::FileHeader;
-        use wholesym::samply_symbols::object::Endianness;
-        let header = object::elf::FileHeader64::<Endianness>::parse(&mmap[..]).ok()?;
-        let endian = header.endian().ok()?;
-        let bad_file = header.e_entry(endian) == 0x40 && header.e_phnum(endian) == 1;
-        dbg!(bad_file);
-        let mmap = if !bad_file {
-            &mmap[..]
-        } else {
-            rewritten_file = object_rewriter::drop_phdr::<wholesym::samply_symbols::object::elf::FileHeader64<Endianness>>(&mmap).unwrap();
-             /* 
-            let mut header = header.clone();
-            header.e_phnum = U16::new(endian, 0);
-            header.e_phoff = U64::new(endian, 0);
-            header.e_shoff = U64::new(endian, 0x40);
-
-            dbg!(header);
-            //rewritten_file = mmap[..].to_owned();
-            let mut head = &mut rewritten_file[0..0x40];
-            head.copy_from_slice(pod::bytes_of(&header));
-
-
-            //rewritten_file.drain(0x40..0x80);
-            std::fs::write("result.so", &rewritten_file);*/
-            &rewritten_file[..]
-        };
-
         let file = match object::File::parse(&mmap[..]) {
             Ok(file) => file,
             Err(_) => {
-                eprintln!("File {objpath:?} has unrecognized format");
+                eprintln!("File {path} has unrecognized format");
                 return None;
             }
         };
@@ -1336,13 +1324,13 @@ where
                     let file_build_id = CodeId::from_binary(file_build_id);
                     let expected_build_id = CodeId::from_binary(build_id);
                     eprintln!(
-                        "File {objpath:?} has non-matching build ID {file_build_id} (expected {expected_build_id})"
+                        "File {path} has non-matching build ID {file_build_id} (expected {expected_build_id})"
                     );
                     return None;
                 }
                 None => {
                     eprintln!(
-                        "File {objpath:?} does not contain a build ID, but we expected it to have one"
+                        "File {path} does not contain a build ID, but we expected it to have one"
                     );
                     return None;
                 }
@@ -1449,7 +1437,7 @@ where
         code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
     }
 
-    let name = objpath
+    let name = Path::new(&path)
         .file_name()
         .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
     Some(LibraryInfo {
@@ -1457,8 +1445,8 @@ where
         avma_range,
         debug_id,
         code_id,
-        path: path.to_string(),
-        debug_path: path.to_string(),
+        path: path.clone(),
+        debug_path: path,
         debug_name: name.clone(),
         name,
         arch: None,
@@ -1470,11 +1458,66 @@ fn kernel_module_build_id(
     path: &Path,
     extra_binary_artifact_dir: Option<&Path>,
 ) -> Option<Vec<u8>> {
-    let file = open_file_with_fallback(path, extra_binary_artifact_dir).ok()?;
+    let file = open_file_with_fallback(path, extra_binary_artifact_dir)
+        .ok()?
+        .0;
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
     let obj = object::File::parse(&mmap[..]).ok()?;
     match obj.build_id() {
         Ok(Some(build_id)) => Some(build_id.to_owned()),
         _ => None,
     }
+}
+
+/// Correct unusable .so files from certain versions of perf which
+/// create ELF program headers but fail to adjust addresses by the
+/// program header size.
+///
+/// For these bad files, we create a new, fixed, file, so that the
+/// mapping correctly refers to the location of its .text section.
+fn correct_bad_perf_jit_so_file(
+    file: &std::fs::File,
+    path: &str,
+) -> Option<(std::fs::File, String)> {
+    if !path.contains("/jitted-") || !path.ends_with(".so") {
+        return None;
+    }
+
+    let mmap = unsafe { memmap2::MmapOptions::new().map(file) }.ok()?;
+    let obj = object::read::File::parse(&mmap[..]).ok()?;
+    if obj.format() != object::BinaryFormat::Elf {
+        return None;
+    }
+
+    // The bad files have exactly one segment, with offset 0x0 and address 0x0.
+    let segment = obj.segments().next()?;
+    if segment.address() != 0 || segment.file_range().0 != 0 {
+        return None;
+    }
+
+    // The bad files have a .text section with offset 0x80 and address 0x40 (on x86_64).
+    let text_section = obj.section_by_name(".text")?;
+    if text_section.file_range()?.0 != text_section.address() {
+        return None;
+    }
+
+    // All right, we have one of the broken files!
+
+    // Let's make it right.
+    let fixed_data = if obj.is_64() {
+        object_rewriter::drop_phdr::<object::elf::FileHeader64<object::Endianness>>(&mmap[..])
+            .ok()?
+    } else {
+        object_rewriter::drop_phdr::<object::elf::FileHeader32<object::Endianness>>(&mmap[..])
+            .ok()?
+    };
+    let mut fixed_path = path.strip_suffix(".so").unwrap().to_string();
+    fixed_path.push_str("-fixed.so");
+
+    std::fs::write(&fixed_path, fixed_data).ok()?;
+
+    // Open the fixed file for reading, and return it.
+    let fixed_file = std::fs::File::open(&fixed_path).ok()?;
+
+    Some((fixed_file, fixed_path))
 }
