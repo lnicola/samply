@@ -28,7 +28,9 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
-use object::{FileKind, Object, ObjectSection, ObjectSegment, ObjectSymbol, SectionKind};
+use object::{
+    FileKind, Object, ObjectSection, ObjectSegment, ObjectSymbol, SectionKind, SymbolKind,
+};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
@@ -954,7 +956,7 @@ where
                 .map(|build_id| CodeId::from_binary(build_id).to_string());
 
             override_category = if name.starts_with("jitted-") && name.ends_with(".so") {
-                let symbol_name = file.symbols().next().and_then(|sym| sym.name().ok());
+                let symbol_name = jit_function_name(&file);
                 let category = self
                     .jit_category_manager
                     .get_category(symbol_name, &mut self.profile);
@@ -994,6 +996,12 @@ where
             },
         );
     }
+}
+
+fn jit_function_name<'data>(obj: &object::File<'data>) -> Option<&'data str> {
+    let mut text_symbols = obj.symbols().filter(|s| s.kind() == SymbolKind::Text);
+    let symbol = text_symbols.next()?;
+    symbol.name().ok()
 }
 
 struct TimestampConverter {

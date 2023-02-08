@@ -20,7 +20,11 @@ impl JitCategoryManager {
     }
 
     fn interpreter(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.interpreter, "Interpreter", CategoryColor::LightBlue)
+        profile.ensure_category(
+            &mut self.interpreter,
+            "Interpreter",
+            CategoryColor::LightBlue,
+        )
     }
 
     fn baseline(&mut self, profile: &mut Profile) -> CategoryPairHandle {
