@@ -7,6 +7,9 @@ pub struct JitCategoryManager {
     baseline: Option<CategoryPairHandle>,
     maglev: Option<CategoryPairHandle>,
     turbolift: Option<CategoryPairHandle>,
+    ion: Option<CategoryPairHandle>,
+    ic: Option<CategoryPairHandle>,
+    trampoline: Option<CategoryPairHandle>,
 }
 
 impl JitCategoryManager {
@@ -39,6 +42,18 @@ impl JitCategoryManager {
         profile.ensure_category(&mut self.turbolift, "Turbolift", CategoryColor::Red)
     }
 
+    fn ion(&mut self, profile: &mut Profile) -> CategoryPairHandle {
+        profile.ensure_category(&mut self.ion, "Ion", CategoryColor::Red)
+    }
+
+    fn ic(&mut self, profile: &mut Profile) -> CategoryPairHandle {
+        profile.ensure_category(&mut self.ic, "IC", CategoryColor::Brown)
+    }
+
+    fn trampoline(&mut self, profile: &mut Profile) -> CategoryPairHandle {
+        profile.ensure_category(&mut self.trampoline, "Trampoline", CategoryColor::DarkGray)
+    }
+
     pub fn get_category(
         &mut self,
         symbol_name: Option<&str>,
@@ -53,6 +68,14 @@ impl JitCategoryManager {
                 self.maglev(profile)
             } else if symbol_name.starts_with("JS:*") {
                 self.turbolift(profile)
+            } else if symbol_name.starts_with("Baseline: ") {
+                self.baseline(profile)
+            } else if symbol_name.starts_with("Ion: ") {
+                self.ion(profile)
+            } else if symbol_name.starts_with("IC: ") {
+                self.ic(profile)
+            } else if symbol_name.starts_with("Trampoline: ") {
+                self.trampoline(profile)
             } else {
                 self.generic_jit(profile)
             }
