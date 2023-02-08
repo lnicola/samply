@@ -355,7 +355,8 @@ impl Profile {
                 location,
                 category_pair,
             };
-            let frame_index = thread.frame_index_for_frame(internal_frame, &self.global_libs);
+            let (frame_index, category_pair) = thread
+                .frame_index_and_adusted_category_for_frame(internal_frame, &self.global_libs);
             prefix = Some(thread.stack_index_for_stack(prefix, frame_index, category_pair));
         }
         prefix

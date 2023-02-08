@@ -86,12 +86,12 @@ impl Thread {
             .index_for_global_string(index, global_table)
     }
 
-    pub fn frame_index_for_frame(
+    pub fn frame_index_and_adusted_category_for_frame(
         &mut self,
         frame: InternalFrame,
         global_libs: &GlobalLibTable,
-    ) -> usize {
-        self.frame_table.index_for_frame(
+    ) -> (usize, CategoryPairHandle) {
+        self.frame_table.frame_index_and_adusted_category_for_frame(
             &mut self.string_table,
             &mut self.resources,
             &mut self.func_table,

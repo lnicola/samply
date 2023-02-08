@@ -18,7 +18,8 @@ pub struct FrameTable {
     subcategories: Vec<Subcategory>,
     funcs: Vec<FuncIndex>,
     native_symbols: Vec<Option<NativeSymbolIndex>>,
-    internal_frame_to_frame_index: FastHashMap<InternalFrame, usize>,
+    internal_frame_to_frame_index_and_adusted_category:
+        FastHashMap<InternalFrame, (usize, CategoryPairHandle)>,
 }
 
 impl FrameTable {
@@ -26,7 +27,7 @@ impl FrameTable {
         Default::default()
     }
 
-    pub fn index_for_frame(
+    pub fn frame_index_and_adusted_category_for_frame(
         &mut self,
         string_table: &mut ThreadStringTable,
         resource_table: &mut ResourceTable,
@@ -34,14 +35,14 @@ impl FrameTable {
         native_symbol_table: &mut NativeSymbols,
         global_libs: &GlobalLibTable,
         frame: InternalFrame,
-    ) -> usize {
+    ) -> (usize, CategoryPairHandle) {
         let addresses = &mut self.addresses;
         let funcs = &mut self.funcs;
         let native_symbols = &mut self.native_symbols;
         let categories = &mut self.categories;
         let subcategories = &mut self.subcategories;
         *self
-            .internal_frame_to_frame_index
+            .internal_frame_to_frame_index_and_adusted_category
             .entry(frame.clone())
             .or_insert_with(|| {
                 let frame_index = addresses.len();
@@ -99,7 +100,7 @@ impl FrameTable {
                 subcategories.push(subcategory);
                 funcs.push(func_index);
                 native_symbols.push(native_symbol);
-                frame_index
+                (frame_index, category_pair)
             })
     }
 

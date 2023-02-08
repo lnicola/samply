@@ -1004,12 +1004,12 @@ fn jit_function_name<'data>(obj: &object::File<'data>) -> Option<&'data str> {
     symbol.name().ok()
 }
 
-#[test]
-fn test_my_jit() {
-    let data = std::fs::read("/Users/mstange/Downloads/jitted-123175-0-fixed.so").unwrap();
-    let file = object::File::parse(&data[..]).unwrap();
-    dbg!(jit_function_name(&file));
-}
+// #[test]
+// fn test_my_jit() {
+//     let data = std::fs::read("/Users/mstange/Downloads/jitted-123175-0-fixed.so").unwrap();
+//     let file = object::File::parse(&data[..]).unwrap();
+//     dbg!(jit_function_name(&file));
+// }
 
 struct TimestampConverter {
     reference_ns: u64,
