@@ -197,6 +197,7 @@ impl TaskProfiler {
                                 code_id: lib.code_id.map(|ci| ci.to_string()),
                                 arch: lib.arch.map(ToOwned::to_owned),
                                 symbol_table: None,
+                                override_category: None,
                             },
                         );
                     }

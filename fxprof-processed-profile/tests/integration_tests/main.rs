@@ -155,6 +155,7 @@ fn it_works() {
                     name: "libc_symbol_2".to_string(),
                 },
             ]))),
+            override_category: None,
         },
     );
     profile.add_lib(
@@ -170,6 +171,7 @@ fn it_works() {
             base_avma: 0x000055ba9eb4d000,
             avma_range: 0x000055ba9ebf6000..0x000055ba9f07e000,
             symbol_table: None,
+            override_category: None,
         },
     );
     let category = profile.add_category("Regular", CategoryColor::Blue);

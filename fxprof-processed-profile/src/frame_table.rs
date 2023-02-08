@@ -45,43 +45,51 @@ impl FrameTable {
             .entry(frame.clone())
             .or_insert_with(|| {
                 let frame_index = addresses.len();
-                let (address, location_string_index, native_symbol, resource) = match frame.location
-                {
-                    InternalFrameLocation::UnknownAddress(address) => {
-                        let location_string = format!("0x{address:x}");
-                        let s = string_table.index_for_string(&location_string);
-                        (None, s, None, None)
-                    }
-                    InternalFrameLocation::AddressInLib(address, lib_index) => {
-                        let res =
-                            resource_table.resource_for_lib(lib_index, global_libs, string_table);
-                        let lib = global_libs.get_lib(lib_index).unwrap();
-                        let native_symbol_and_name =
-                            lib.symbol_table.as_deref().and_then(|symbol_table| {
-                                let symbol = symbol_table.lookup(address)?;
-                                Some(
-                                    native_symbol_table.symbol_index_and_string_index_for_symbol(
-                                        lib_index,
-                                        symbol,
-                                        string_table,
-                                    ),
-                                )
-                            });
-                        let (native_symbol, s) = match native_symbol_and_name {
-                            Some((native_symbol, name_string_index)) => {
-                                (Some(native_symbol), name_string_index)
-                            }
-                            None => {
-                                let location_string = format!("0x{address:x}");
-                                (None, string_table.index_for_string(&location_string))
-                            }
-                        };
-                        (Some(address), s, native_symbol, Some(res))
-                    }
-                    InternalFrameLocation::Label(string_index) => (None, string_index, None, None),
-                };
+                let (address, location_string_index, native_symbol, resource, category_pair) =
+                    match frame.location {
+                        InternalFrameLocation::UnknownAddress(address) => {
+                            let location_string = format!("0x{address:x}");
+                            let s = string_table.index_for_string(&location_string);
+                            (None, s, None, None, frame.category_pair)
+                        }
+                        InternalFrameLocation::AddressInLib(address, lib_index) => {
+                            let res = resource_table.resource_for_lib(
+                                lib_index,
+                                global_libs,
+                                string_table,
+                            );
+                            let lib = global_libs.get_lib(lib_index).unwrap();
+                            let native_symbol_and_name =
+                                lib.symbol_table.as_deref().and_then(|symbol_table| {
+                                    let symbol = symbol_table.lookup(address)?;
+                                    Some(
+                                        native_symbol_table
+                                            .symbol_index_and_string_index_for_symbol(
+                                                lib_index,
+                                                symbol,
+                                                string_table,
+                                            ),
+                                    )
+                                });
+                            let (native_symbol, s) = match native_symbol_and_name {
+                                Some((native_symbol, name_string_index)) => {
+                                    (Some(native_symbol), name_string_index)
+                                }
+                                None => {
+                                    let location_string = format!("0x{address:x}");
+                                    (None, string_table.index_for_string(&location_string))
+                                }
+                            };
+                            let category_pair =
+                                lib.override_category.unwrap_or(frame.category_pair);
+                            (Some(address), s, native_symbol, Some(res), category_pair)
+                        }
+                        InternalFrameLocation::Label(string_index) => {
+                            (None, string_index, None, None, frame.category_pair)
+                        }
+                    };
                 let func_index = func_table.index_for_func(location_string_index, resource);
-                let CategoryPairHandle(category, subcategory_index) = frame.category_pair;
+                let CategoryPairHandle(category, subcategory_index) = category_pair;
                 let subcategory = match subcategory_index {
                     Some(index) => Subcategory::Normal(index),
                     None => Subcategory::Other(category),

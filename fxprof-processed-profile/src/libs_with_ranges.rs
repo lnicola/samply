@@ -35,6 +35,7 @@ impl LibsWithRanges {
             debug_id: lib.debug_id,
             code_id: lib.code_id,
             symbol_table: lib.symbol_table,
+            override_category: lib.override_category,
         });
 
         self.lib_ranges.insert(LibRange {

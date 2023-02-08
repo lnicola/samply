@@ -1,6 +1,8 @@
 use debugid::DebugId;
 use std::{ops::Range, sync::Arc};
 
+use crate::CategoryPairHandle;
+
 /// A library ("binary" / "module" / "DSO") which is loaded into a process.
 /// This can be the main executable file or a dynamic library, or any other
 /// mapping of executable memory.
@@ -70,6 +72,10 @@ pub struct LibraryInfo {
     /// inline frames. It is intended for relatively "small" symbol tables for which
     /// an address lookup is fast.
     pub symbol_table: Option<Arc<SymbolTable>>,
+    /// An optional "override category". For addresses found in this library, the
+    /// frame category is changed from whatever was passed to [`Profile::add_sample`]
+    /// to what's set here.
+    pub override_category: Option<CategoryPairHandle>,
 }
 
 /// A symbol table which contains a list of [`Symbol`]s, used in [`LibraryInfo`].

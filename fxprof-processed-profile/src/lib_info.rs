@@ -3,7 +3,7 @@ use std::sync::Arc;
 use debugid::DebugId;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::library_info::SymbolTable;
+use crate::{library_info::SymbolTable, CategoryPairHandle};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Lib {
@@ -15,6 +15,7 @@ pub struct Lib {
     pub debug_id: DebugId,
     pub code_id: Option<String>,
     pub symbol_table: Option<Arc<SymbolTable>>,
+    pub override_category: Option<CategoryPairHandle>,
 }
 
 impl Serialize for Lib {

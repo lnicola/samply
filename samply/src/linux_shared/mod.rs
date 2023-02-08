@@ -1,4 +1,5 @@
 mod context_switch;
+mod jit_category_manager;
 mod kernel_symbols;
 mod object_rewriter;
 
@@ -27,7 +28,7 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
-use object::{FileKind, Object, ObjectSection, ObjectSegment, SectionKind};
+use object::{FileKind, Object, ObjectSection, ObjectSegment, ObjectSymbol, SectionKind};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
@@ -40,6 +41,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
+use self::jit_category_manager::JitCategoryManager;
 use self::kernel_symbols::KernelSymbols;
 
 pub trait ConvertRegs {
@@ -172,6 +174,8 @@ where
     /// Mapping of start address to potential mapped PE binaries.
     /// The key is equal to the start field of the value.
     suspected_pe_mappings: BTreeMap<u64, SuspectedPeMapping>,
+
+    jit_category_manager: JitCategoryManager,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -230,6 +234,7 @@ where
             have_context_switches: interpretation.have_context_switches,
             kernel_symbols: KernelSymbols::new_for_running_kernel(),
             suspected_pe_mappings: BTreeMap::new(),
+            jit_category_manager: Default::default(),
         }
     }
 
@@ -731,6 +736,7 @@ where
             debug_name: dso_key.name().to_string(),
             arch: None,
             symbol_table,
+            override_category: None,
         }
     }
 
@@ -802,9 +808,14 @@ where
         let mapping_end_avma = mapping_start_avma + mapping_size;
         let avma_range = mapping_start_avma..mapping_end_avma;
 
+        let name = Path::new(&path)
+            .file_name()
+            .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
+
         let code_id;
         let debug_id;
         let base_avma;
+        let override_category;
 
         if let Some(file) = file {
             let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
@@ -941,6 +952,16 @@ where
                 .ok()
                 .flatten()
                 .map(|build_id| CodeId::from_binary(build_id).to_string());
+
+            override_category = if name.starts_with("jitted-") && name.ends_with(".so") {
+                let symbol_name = file.symbols().next().and_then(|sym| sym.name().ok());
+                let category = self
+                    .jit_category_manager
+                    .get_category(symbol_name, &mut self.profile);
+                Some(category)
+            } else {
+                None
+            };
         } else {
             // Without access to the binary file, make some guesses. We can't really
             // know what the right base address is because we don't have the section
@@ -953,11 +974,8 @@ where
                 .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
                 .unwrap_or_default();
             code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
+            override_category = None;
         }
-
-        let name = Path::new(&path)
-            .file_name()
-            .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
 
         self.profile.add_lib(
             process.profile_process,
@@ -972,6 +990,7 @@ where
                 name,
                 arch: None,
                 symbol_table: None,
+                override_category,
             },
         );
     }
