@@ -236,7 +236,7 @@ where
             have_context_switches: interpretation.have_context_switches,
             kernel_symbols: KernelSymbols::new_for_running_kernel(),
             suspected_pe_mappings: BTreeMap::new(),
-            jit_category_manager: Default::default(),
+            jit_category_manager: JitCategoryManager::new(),
         }
     }
 

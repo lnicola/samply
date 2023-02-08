@@ -1,106 +1,50 @@
 use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, Profile};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct JitCategoryManager {
-    generic_jit: Option<CategoryPairHandle>,
-    interpreter: Option<CategoryPairHandle>,
-    baseline: Option<CategoryPairHandle>,
-    maglev: Option<CategoryPairHandle>,
-    turbolift: Option<CategoryPairHandle>,
-    ion: Option<CategoryPairHandle>,
-    ic: Option<CategoryPairHandle>,
-    trampoline: Option<CategoryPairHandle>,
+    categories: [Option<CategoryPairHandle>; Self::CATEGORIES.len()],
 }
 
 impl JitCategoryManager {
-    #[allow(unused)]
+    /// (prefix, name, color)
+    const CATEGORIES: &'static [(&'static str, &'static str, CategoryColor)] = &[
+        ("JS:~", "Interpreter", CategoryColor::Green),
+        ("JS:^", "Baseline", CategoryColor::Blue),
+        ("JS:+", "Maglev", CategoryColor::Purple),
+        ("JS:*", "Turbofan", CategoryColor::Red),
+        ("Baseline: ", "Baseline", CategoryColor::Blue),
+        ("Ion: ", "Ion", CategoryColor::Red),
+        ("IC: ", "IC", CategoryColor::Brown),
+        ("Trampoline: ", "Trampoline", CategoryColor::DarkGray),
+        ("", "JIT", CategoryColor::LightGreen), // Generic fallback category for JIT code
+    ];
+
     pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn generic_jit(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.generic_jit, "JIT", CategoryColor::LightGreen)
-    }
-
-    fn interpreter(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(
-            &mut self.interpreter,
-            "Interpreter",
-            CategoryColor::LightBlue,
-        )
-    }
-
-    fn baseline(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.baseline, "Baseline", CategoryColor::Blue)
-    }
-
-    fn maglev(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.maglev, "Maglev", CategoryColor::Purple)
-    }
-
-    fn turbolift(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.turbolift, "Turbolift", CategoryColor::Red)
-    }
-
-    fn ion(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.ion, "Ion", CategoryColor::Red)
-    }
-
-    fn ic(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.ic, "IC", CategoryColor::Brown)
-    }
-
-    fn trampoline(&mut self, profile: &mut Profile) -> CategoryPairHandle {
-        profile.ensure_category(&mut self.trampoline, "Trampoline", CategoryColor::DarkGray)
-    }
-
-    pub fn get_category(
-        &mut self,
-        symbol_name: Option<&str>,
-        profile: &mut Profile,
-    ) -> CategoryPairHandle {
-        if let Some(symbol_name) = symbol_name {
-            if symbol_name.starts_with("JS:~") {
-                self.interpreter(profile)
-            } else if symbol_name.starts_with("JS:^") {
-                self.baseline(profile)
-            } else if symbol_name.starts_with("JS:+") {
-                self.maglev(profile)
-            } else if symbol_name.starts_with("JS:*") {
-                self.turbolift(profile)
-            } else if symbol_name.starts_with("Baseline: ") {
-                self.baseline(profile)
-            } else if symbol_name.starts_with("Ion: ") {
-                self.ion(profile)
-            } else if symbol_name.starts_with("IC: ") {
-                self.ic(profile)
-            } else if symbol_name.starts_with("Trampoline: ") {
-                self.trampoline(profile)
-            } else {
-                self.generic_jit(profile)
-            }
-        } else {
-            self.generic_jit(profile)
+        Self {
+            categories: [None; Self::CATEGORIES.len()],
         }
     }
-}
 
-trait EnsureCategory {
-    fn ensure_category(
+    /// Get the category which should be used for the stack frame for a function
+    /// from JIT code.
+    ///
+    /// The category is only created in the profile once a function with that
+    /// category is encountered.
+    pub fn get_category(
         &mut self,
-        storage: &mut Option<CategoryPairHandle>,
-        name: &str,
-        color: CategoryColor,
-    ) -> CategoryPairHandle;
-}
-
-impl EnsureCategory for Profile {
-    fn ensure_category(
-        &mut self,
-        storage: &mut Option<CategoryPairHandle>,
-        name: &str,
-        color: CategoryColor,
+        name: Option<&str>,
+        profile: &mut Profile,
     ) -> CategoryPairHandle {
-        *storage.get_or_insert_with(|| self.add_category(name, color).into())
+        let name = name.unwrap_or("");
+        for (&(prefix, category_name, color), storage) in
+            Self::CATEGORIES.iter().zip(self.categories.iter_mut())
+        {
+            if name.starts_with(prefix) {
+                let category = *storage
+                    .get_or_insert_with(|| profile.add_category(category_name, color).into());
+                return category;
+            }
+        }
+        panic!("the last category has prefix '' so it should always be hit")
     }
 }
