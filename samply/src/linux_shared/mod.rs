@@ -305,7 +305,9 @@ where
             CpuDelta::from_nanos(0)
         };
 
-        let frames = self.stack_converter.convert_stack(stack);
+        let frames = self
+            .stack_converter
+            .convert_stack(stack, &process.jit_functions);
         self.profile
             .add_sample(thread_handle, profile_timestamp, frames, cpu_delta, 1);
         thread.last_sample_timestamp = Some(timestamp);
@@ -325,7 +327,7 @@ where
 
         let stack = self
             .stack_converter
-            .convert_stack_no_kernel(&stack)
+            .convert_stack_no_kernel(&stack, &process.jit_functions)
             .collect();
 
         let thread =
@@ -817,7 +819,6 @@ where
         let code_id;
         let debug_id;
         let base_avma;
-        let override_category;
 
         if let Some(file) = file {
             let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
@@ -955,14 +956,16 @@ where
                 .flatten()
                 .map(|build_id| CodeId::from_binary(build_id).to_string());
 
-            override_category = if name.starts_with("jitted-") && name.ends_with(".so") {
+            if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
                 let category = self
                     .jit_category_manager
                     .get_category(symbol_name, &mut self.profile);
-                Some(category)
-            } else {
-                None
+                process.jit_functions.insert(JitFunction {
+                    start_address: mapping_start_avma,
+                    end_address: mapping_end_avma,
+                    category,
+                });
             };
         } else {
             // Without access to the binary file, make some guesses. We can't really
@@ -976,7 +979,6 @@ where
                 .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
                 .unwrap_or_default();
             code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
-            override_category = None;
         }
 
         self.profile.add_lib(
@@ -992,7 +994,7 @@ where
                 name,
                 arch: None,
                 symbol_table: None,
-                override_category,
+                override_category: None,
             },
         );
     }
@@ -1065,22 +1067,28 @@ struct StackConverter {
 }
 
 impl StackConverter {
-    fn convert_stack(
+    fn convert_stack<'a>(
         &self,
         stack: Vec<StackFrame>,
-    ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> {
+        jit_functions: &'a JitFunctions,
+    ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> + 'a {
         let user_category = self.user_category;
         let kernel_category = self.kernel_category;
         stack.into_iter().rev().filter_map(move |frame| {
-            let (location, mode) = match frame {
+            let (location, mode, lookup_address) = match frame {
                 StackFrame::InstructionPointer(addr, mode) => {
-                    (Frame::InstructionPointer(addr), mode)
+                    (Frame::InstructionPointer(addr), mode, addr)
                 }
-                StackFrame::ReturnAddress(addr, mode) => (Frame::ReturnAddress(addr), mode),
+                StackFrame::ReturnAddress(addr, mode) => {
+                    (Frame::ReturnAddress(addr), mode, addr.saturating_sub(1))
+                }
                 StackFrame::TruncatedStackMarker => return None,
             };
             let category = match mode {
-                StackMode::User => user_category,
+                StackMode::User => match jit_functions.category_for_address(lookup_address) {
+                    Some(category) => category,
+                    None => user_category,
+                },
                 StackMode::Kernel => kernel_category,
             };
             Some((location, category))
@@ -1090,18 +1098,27 @@ impl StackConverter {
     fn convert_stack_no_kernel<'a>(
         &self,
         stack: &'a [StackFrame],
+        jit_functions: &'a JitFunctions,
     ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> + 'a {
         let user_category = self.user_category;
         stack.iter().rev().filter_map(move |frame| {
-            let (location, mode) = match *frame {
+            let (location, mode, lookup_address) = match *frame {
                 StackFrame::InstructionPointer(addr, mode) => {
-                    (Frame::InstructionPointer(addr), mode)
+                    (Frame::InstructionPointer(addr), mode, addr)
                 }
-                StackFrame::ReturnAddress(addr, mode) => (Frame::ReturnAddress(addr), mode),
+                StackFrame::ReturnAddress(addr, mode) => {
+                    (Frame::ReturnAddress(addr), mode, addr.saturating_sub(1))
+                }
                 StackFrame::TruncatedStackMarker => return None,
             };
             match mode {
-                StackMode::User => Some((location, user_category)),
+                StackMode::User => {
+                    let category = match jit_functions.category_for_address(lookup_address) {
+                        Some(category) => category,
+                        None => user_category,
+                    };
+                    Some((location, category))
+                }
                 StackMode::Kernel => None,
             }
         })
@@ -1127,6 +1144,7 @@ where
             Process {
                 profile_process: handle,
                 unwinder: U::default(),
+                jit_functions: JitFunctions(Vec::new()),
             }
         })
     }
@@ -1169,6 +1187,40 @@ struct Thread {
 struct Process<U> {
     pub profile_process: ProcessHandle,
     pub unwinder: U,
+    pub jit_functions: JitFunctions,
+}
+
+struct JitFunctions(Vec<JitFunction>);
+
+impl JitFunctions {
+    pub fn insert(&mut self, fun: JitFunction) {
+        match self
+            .0
+            .binary_search_by_key(&fun.start_address, |jf| jf.start_address)
+        {
+            Ok(i) => self.0[i] = fun,
+            Err(i) => self.0.insert(i, fun),
+        }
+    }
+
+    pub fn category_for_address(&self, address: u64) -> Option<CategoryPairHandle> {
+        let jit_function = match self.0.binary_search_by_key(&address, |jf| jf.start_address) {
+            Err(0) => return None,
+            Ok(i) => &self.0[i],
+            Err(i) => &self.0[i - 1],
+        };
+        if address >= jit_function.end_address {
+            return None;
+        }
+        Some(jit_function.category)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct JitFunction {
+    pub start_address: u64,
+    pub end_address: u64,
+    pub category: CategoryPairHandle,
 }
 
 #[derive(Clone, Debug)]
